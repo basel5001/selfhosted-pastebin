@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pastebin — View Paste</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        :root {
+            --bg: #0d1117; --surface: #161b22; --border: #30363d;
+            --text: #e6edf3; --text-muted: #8b949e; --accent: #58a6ff;
+            --accent-hover: #79c0ff; --danger: #f85149; --success: #3fb950;
+            --warning: #d29922;
+        }
+        body {
+            font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace;
+            background: var(--bg); color: var(--text);
+            min-height: 100vh; display: flex; flex-direction: column;
+        }
+        header {
+            border-bottom: 1px solid var(--border); padding: 1rem 2rem;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        header h1 { font-size: 1.25rem; font-weight: 600; }
+        header h1 a { color: var(--text); text-decoration: none; }
+        header h1 span { color: var(--accent); }
+        .header-actions { display: flex; gap: 0.75rem; }
+        main { flex: 1; padding: 2rem; max-width: 960px; margin: 0 auto; width: 100%; }
+
+        /* Password prompt */
+        .password-prompt {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; padding: 2rem; text-align: center;
+            max-width: 400px; margin: 4rem auto;
+        }
+        .password-prompt h2 { font-size: 1rem; margin-bottom: 1rem; }
+        .password-prompt input {
+            width: 100%; padding: 0.6rem 0.75rem; background: var(--bg);
+            border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+            font-family: inherit; font-size: 0.85rem; margin-bottom: 1rem; outline: none;
+        }
+        .password-prompt input:focus { border-color: var(--accent); }
+        .password-prompt .error-msg {
+            color: var(--danger); font-size: 0.8rem; margin-bottom: 0.75rem; display: none;
+        }
+
+        /* Metadata bar */
+        .meta {
+            display: flex; flex-wrap: wrap; gap: 1.5rem; margin-bottom: 1rem;
+            font-size: 0.8rem; color: var(--text-muted);
+        }
+        .meta-item { display: flex; align-items: center; gap: 0.35rem; }
+        .meta-label { font-weight: 600; }
+        .badge {
+            display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px;
+            font-size: 0.75rem; font-weight: 600;
+        }
+        .badge-burn { background: #f8514933; color: var(--danger); }
+        .badge-lang { background: #58a6ff22; color: var(--accent); }
+
+        /* Code block */
+        .code-wrap {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; overflow: hidden;
+        }
+        .code-header {
+            padding: 0.5rem 1rem; border-bottom: 1px solid var(--border);
+            display: flex; align-items: center; justify-content: space-between;
+            font-size: 0.8rem; color: var(--text-muted);
+        }
+        .code-header .actions { display: flex; gap: 0.5rem; }
+        pre { margin: 0; overflow-x: auto; }
+        pre code {
+            display: block; padding: 1rem; font-size: 0.85rem; line-height: 1.6;
+            background: transparent !important;
+        }
+
+        /* Buttons */
+        button {
+            padding: 0.45rem 0.85rem; border: 1px solid var(--border);
+            border-radius: 6px; background: var(--surface); color: var(--text);
+            font-family: inherit; font-size: 0.75rem; cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        button:hover { border-color: var(--text-muted); }
+        .btn-primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+        .btn-primary:hover { background: var(--accent-hover); }
+
+        /* Loading / error states */
+        .state-msg {
+            text-align: center; padding: 4rem 2rem; color: var(--text-muted);
+        }
+        .state-msg.error { color: var(--danger); }
+
+        footer {
+            text-align: center; padding: 1rem; color: var(--text-muted);
+            font-size: 0.75rem; border-top: 1px solid var(--border);
+        }
+        footer a { color: var(--accent); text-decoration: none; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1><a href="/"><span>&gt;_</span> pastebin</a></h1>
+        <div class="header-actions">
+            <a href="/"><button>+ New Paste</button></a>
+        </div>
+    </header>
+
+    <main>
+        <!-- Password prompt (shown only if paste is password-protected) -->
+        <div id="passwordPrompt" style="display:none;">
+            <div class="password-prompt">
+                <h2>This paste is password-protected</h2>
+                <div class="error-msg" id="pwError">Incorrect password</div>
+                <input type="password" id="pwInput" placeholder="Enter password" autofocus>
+                <button class="btn-primary" onclick="loadPaste()" style="width:100%;padding:0.6rem;">Unlock</button>
+            </div>
+        </div>
+
+        <!-- Loading state -->
+        <div id="loading" class="state-msg">Decrypting...</div>
+
+        <!-- Paste content (hidden until loaded) -->
+        <div id="pasteContent" style="display:none;">
+            <div class="meta" id="metaBar"></div>
+            <div class="code-wrap">
+                <div class="code-header">
+                    <span id="langLabel"></span>
+                    <div class="actions">
+                        <button onclick="copyContent()">Copy</button>
+                        <button onclick="viewRaw()">Raw</button>
+                    </div>
+                </div>
+                <pre><code id="codeBlock"></code></pre>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <a href="https://github.com/basel5001/selfhosted-pastebin">selfhosted-pastebin</a>
+        &mdash; zero-knowledge encrypted pastes
+    </footer>
+
+    <script>
+        const PASTE_ID = "{{ paste_id }}";
+        const HAS_PASSWORD = {{ "true" if has_password else "false" }};
+        let decryptedContent = '';
+
+        // --- AES-GCM Decryption ---
+        function base64UrlToBytes(b64) {
+            let s = b64.replace(/-/g, '+').replace(/_/g, '/');
+            while (s.length % 4) s += '=';
+            const binary = atob(s);
+            return Uint8Array.from(binary, c => c.charCodeAt(0));
+        }
+
+        async function importKey(keyStr) {
+            const raw = base64UrlToBytes(keyStr);
+            return crypto.subtle.importKey('raw', raw, { name: 'AES-GCM' }, false, ['decrypt']);
+        }
+
+        async function decryptContent(b64Ciphertext, key) {
+            const data = Uint8Array.from(atob(b64Ciphertext), c => c.charCodeAt(0));
+            const iv = data.slice(0, 12);
+            const ciphertext = data.slice(12);
+            const decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+            return new TextDecoder().decode(decrypted);
+        }
+
+        // --- Time formatting ---
+        function timeAgo(iso) {
+            const d = new Date(iso);
+            const now = new Date();
+            const diff = Math.floor((now - d) / 1000);
+            if (diff < 60) return 'just now';
+            if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+            if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+            return Math.floor(diff / 86400) + 'd ago';
+        }
+
+        function formatExpiry(iso) {
+            if (!iso) return 'never';
+            const d = new Date(iso);
+            const now = new Date();
+            const diff = Math.floor((d - now) / 1000);
+            if (diff <= 0) return 'expired';
+            if (diff < 3600) return 'in ' + Math.floor(diff / 60) + 'm';
+            if (diff < 86400) return 'in ' + Math.floor(diff / 3600) + 'h';
+            return 'in ' + Math.floor(diff / 86400) + 'd';
+        }
+
+        // --- Load paste ---
+        let currentPassword = null;
+
+        async function loadPaste() {
+            const loading = document.getElementById('loading');
+            const content = document.getElementById('pasteContent');
+            const pwPrompt = document.getElementById('passwordPrompt');
+            const pwError = document.getElementById('pwError');
+
+            // Get password if required
+            if (HAS_PASSWORD) {
+                currentPassword = document.getElementById('pwInput').value;
+                if (!currentPassword) {
+                    pwError.textContent = 'Please enter a password';
+                    pwError.style.display = 'block';
+                    return;
+                }
+            }
+
+            loading.style.display = 'block';
+            pwPrompt.style.display = 'none';
+            content.style.display = 'none';
+
+            try {
+                // Fetch paste from API
+                let url = `/api/paste/${PASTE_ID}`;
+                if (currentPassword) url += `?password=${encodeURIComponent(currentPassword)}`;
+
+                const res = await fetch(url);
+                if (res.status === 401 || res.status === 403) {
+                    loading.style.display = 'none';
+                    pwPrompt.style.display = 'block';
+                    pwError.textContent = res.status === 403 ? 'Incorrect password' : 'Password required';
+                    pwError.style.display = 'block';
+                    return;
+                }
+                if (!res.ok) {
+                    const err = await res.json();
+                    throw new Error(err.detail || 'Paste not found');
+                }
+
+                const paste = await res.json();
+
+                // Decrypt content using key from URL fragment
+                const keyStr = window.location.hash.slice(1);
+                if (!keyStr) {
+                    throw new Error('No decryption key in URL. The paste cannot be decrypted.');
+                }
+
+                const key = await importKey(keyStr);
+                decryptedContent = await decryptContent(paste.content, key);
+
+                // Render metadata
+                const meta = document.getElementById('metaBar');
+                let metaHTML = `
+                    <div class="meta-item"><span class="badge badge-lang">${paste.language}</span></div>
+                    <div class="meta-item"><span class="meta-label">Created:</span> ${timeAgo(paste.created_at)}</div>
+                    <div class="meta-item"><span class="meta-label">Expires:</span> ${formatExpiry(paste.expires_at)}</div>
+                    <div class="meta-item"><span class="meta-label">Views:</span> ${paste.views}</div>
+                `;
+                if (paste.burn_after_read) {
+                    metaHTML += `<div class="meta-item"><span class="badge badge-burn">BURNED</span></div>`;
+                }
+                meta.innerHTML = metaHTML;
+
+                // Render code with syntax highlighting
+                const codeBlock = document.getElementById('codeBlock');
+                codeBlock.textContent = decryptedContent;
+                if (paste.language !== 'plain') {
+                    codeBlock.className = `language-${paste.language}`;
+                    hljs.highlightElement(codeBlock);
+                }
+
+                document.getElementById('langLabel').textContent = paste.language;
+
+                loading.style.display = 'none';
+                content.style.display = 'block';
+
+            } catch (err) {
+                loading.innerHTML = `<div class="state-msg error">${err.message}</div>`;
+            }
+        }
+
+        function copyContent() {
+            navigator.clipboard.writeText(decryptedContent).then(() => {
+                const btn = event.target;
+                btn.textContent = 'Copied!';
+                setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
+            });
+        }
+
+        function viewRaw() {
+            const blob = new Blob([decryptedContent], { type: 'text/plain' });
+            window.open(URL.createObjectURL(blob));
+        }
+
+        // --- Handle Enter key in password field ---
+        document.getElementById('pwInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') loadPaste();
+        });
+
+        // --- Init ---
+        if (HAS_PASSWORD) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('passwordPrompt').style.display = 'block';
+        } else {
+            loadPaste();
+        }
+    </script>
+</body>
+</html>

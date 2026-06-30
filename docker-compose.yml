@@ -1,0 +1,22 @@
+services:
+  pastebin:
+    build: .
+    container_name: pastebin
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - pastebin_data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/pastebin.db
+      - MAX_PASTE_SIZE=524288
+      - RATE_LIMIT_MAX=10
+      - RATE_LIMIT_WINDOW=60
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  pastebin_data:
