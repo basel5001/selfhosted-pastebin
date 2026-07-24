@@ -100,6 +100,42 @@ curl -X DELETE http://localhost:8000/api/paste/{id}
 curl http://localhost:8000/health
 ```
 
+## CLI Client
+
+A bash CLI client is included for pasting from the terminal.
+
+### Installation
+
+```bash
+cp cli/paste /usr/local/bin/paste
+chmod +x /usr/local/bin/paste
+```
+
+### Usage
+
+```bash
+# Pipe content
+echo "hello world" | paste
+
+# Paste a file
+paste < script.py
+
+# With options
+paste --expire 1h --syntax python < code.py
+
+# Burn after reading
+echo "secret" | paste --burn
+
+# Custom server
+echo "data" | paste --server https://paste.example.com
+```
+
+Set `PASTE_SERVER` environment variable to avoid passing `--server` each time.
+
+### API Documentation
+
+Full OpenAPI 3.0 specification is available at `docs/api.yaml`.
+
 ## Testing
 
 ```bash

@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# paste - CLI client for selfhosted-pastebin
+# Usage:
+#   echo "hello" | paste
+#   paste < file.py
+#   paste --expire 1h --syntax python < code.py
+
+PASTE_SERVER="${PASTE_SERVER:-http://localhost:8000}"
+EXPIRE="1d"
+SYNTAX=""
+BURN=false
+
+usage() {
+  cat <<EOF
+Usage: echo "content" | paste [OPTIONS]
+       paste [OPTIONS] < file
+
+Options:
+  --expire DURATION   Expiry: 1h, 1d, 7d, 30d, never (default: 1d)
+  --syntax LANG       Syntax highlighting language
+  --burn              Burn after reading
+  --server URL        Server URL (default: \$PASTE_SERVER or http://localhost:8000)
+  -h, --help          Show this help
+EOF
+  exit 0
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --expire) EXPIRE="$2"; shift 2 ;;
+    --syntax) SYNTAX="$2"; shift 2 ;;
+    --burn) BURN=true; shift ;;
+    --server) PASTE_SERVER="$2"; shift 2 ;;
+    -h|--help) usage ;;
+    *) echo "Unknown option: $1" >&2; exit 1 ;;
+  esac
+done
+
+# Read content from stdin
+if [ -t 0 ]; then
+  echo "Error: No input. Pipe content or redirect a file." >&2
+  exit 1
+fi
+CONTENT=$(cat)
+
+if [ -z "$CONTENT" ]; then
+  echo "Error: Empty input." >&2
+  exit 1
+fi
+
+# Generate AES-256 key and IV
+KEY=$(openssl rand -hex 32)
+IV=$(openssl rand -hex 12)
+
+# Encrypt content with AES-256-GCM
+ENCRYPTED=$(echo -n "$CONTENT" | openssl enc -aes-256-gcm -K "$KEY" -iv "$IV" -a -A 2>/dev/null || \
+  echo -n "$CONTENT" | openssl enc -aes-256-cbc -K "$KEY" -iv "${IV}00000000000000000000" -a -A)
+
+# Build JSON payload
+PAYLOAD=$(cat <<EOF
+{
+  "content": "${IV}:${ENCRYPTED}",
+  "language": "${SYNTAX}",
+  "expires_in": "${EXPIRE}",
+  "burn_after_read": ${BURN}
+}
+EOF
+)
+
+# POST to server
+RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "${PASTE_SERVER}/api/paste" \
+  -H "Content-Type: application/json" \
+  -d "$PAYLOAD")
+
+HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+BODY=$(echo "$RESPONSE" | sed '$d')
+
+if [ "$HTTP_CODE" != "201" ] && [ "$HTTP_CODE" != "200" ]; then
+  echo "Error: Server returned HTTP $HTTP_CODE" >&2
+  echo "$BODY" >&2
+  exit 1
+fi
+
+PASTE_ID=$(echo "$BODY" | grep -o '"id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)
+
+echo "URL: ${PASTE_SERVER}/${PASTE_ID}#${KEY}"
+echo "Delete token: $(echo "$BODY" | grep -o '"delete_token"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | cut -d'"' -f4)"

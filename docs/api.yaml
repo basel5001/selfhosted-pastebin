@@ -1,0 +1,138 @@
+openapi: "3.0.3"
+info:
+  title: Selfhosted Pastebin API
+  description: Zero-knowledge encrypted paste service API
+  version: "1.0.0"
+  license:
+    name: MIT
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+
+paths:
+  /api/paste:
+    post:
+      summary: Create a new paste
+      operationId: createPaste
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  description: Encrypted paste content (base64)
+                language:
+                  type: string
+                  description: Syntax highlighting language
+                  example: python
+                expires_in:
+                  type: string
+                  enum: ["1h", "1d", "7d", "30d", "never"]
+                  default: "1d"
+                password:
+                  type: string
+                  description: Optional access password
+                burn_after_read:
+                  type: boolean
+                  default: false
+      responses:
+        "201":
+          description: Paste created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    example: abc12345
+                  url:
+                    type: string
+                    example: /abc12345
+                  delete_token:
+                    type: string
+        "400":
+          description: Invalid request
+        "429":
+          description: Rate limit exceeded
+
+  /api/paste/{id}:
+    get:
+      summary: Get a paste
+      operationId: getPaste
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: password
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paste content
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  content:
+                    type: string
+                  language:
+                    type: string
+                  created_at:
+                    type: string
+                    format: date-time
+        "404":
+          description: Paste not found
+        "401":
+          description: Password required
+
+    delete:
+      summary: Delete a paste
+      operationId: deletePaste
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Paste deleted
+        "403":
+          description: Invalid delete token
+        "404":
+          description: Paste not found
+
+  /api/paste/{id}/raw:
+    get:
+      summary: Get raw paste content
+      operationId: getRawPaste
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Raw encrypted content
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Paste not found
